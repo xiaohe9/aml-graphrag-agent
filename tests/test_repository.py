@@ -156,3 +156,110 @@ def test_workflow_is_tracked() -> None:
     tracked = _tracked_files()
     workflows = [path for path in tracked if path.startswith(".github/workflows/")]
     assert workflows, "没有任何 workflow 被跟踪——GitHub 上不会跑 CI"
+
+
+# --------------------------------------------------------------------------- #
+#  4. ★ 源文件不能被静默忽略（**这个测试是踩了大坑之后加的**）
+# --------------------------------------------------------------------------- #
+
+#: 这些目录下的源文件必须全部入库。
+SOURCE_DIRS: tuple[str, ...] = ("src/", "tests/", "scripts/")
+
+
+def _ignored_files() -> list[str]:
+    """被 `.gitignore` 忽略的文件（相对仓库根）。"""
+    result = subprocess.run(
+        ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip("不是 git 仓库")
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def test_no_source_file_is_silently_ignored() -> None:
+    """**磁盘上的源文件不能"存在但没被提交"。**
+
+    ## 这个测试拦的是什么（真实事故）
+
+    `.gitignore` 里写了一句 `data/`，本意是排除根目录下的数据集。
+    但 **`data/` 会匹配任意层级的 `data` 目录**——
+
+    于是 **`src/aml_agent/data/` 整个源码包被静默忽略了**，
+    里面是 `schema.py` 和 `loader.py`。
+
+    **本地永远发现不了**：磁盘上文件都在，跑什么都正常。
+    只有**新克隆的仓库**里才会炸：
+
+    ```text
+    ModuleNotFoundError: No module named 'aml_agent.data'
+    ```
+
+    **是 CI 在全新检出上跑，才把它抓出来的。**
+
+    ## 为什么必须自动检查
+
+    `.gitignore` 的匹配规则**不看意图，只看模式**——
+    一句看起来无害的 `data/` 就能吃掉一个源码包。
+    **靠人记住"这个模式会不会误伤"，是不可靠的。**
+    """
+    ignored = _ignored_files()
+    offenders = [path for path in ignored if path.startswith(SOURCE_DIRS) and path.endswith(".py")]
+    assert not offenders, (
+        "这些源文件在磁盘上存在，但被 .gitignore 忽略了，**不会进入仓库**：\n  "
+        + "\n  ".join(offenders)
+        + "\n\n常见原因：`.gitignore` 里的目录模式没锚定到根。\n"
+        "`data/` 会匹配 `src/aml_agent/data/`，要用 `/data/` 才能只匹配根目录。"
+    )
+
+
+def test_gitignore_root_patterns_are_anchored() -> None:
+    """会误伤源码的目录模式**必须用前导斜杠锚定到根**。
+
+    这条查的是"规则写法"本身——即使当前恰好没有同名源码目录，
+    一个没锚定的 `data/` 也是**埋着的雷**：哪天有人建了 `src/x/data/`，它就会被吃掉。
+    """
+    text = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    # 这些名字在任何层级都可能是**源码目录**，所以必须锚定
+    must_anchor = ("data", "artifacts", "resume", "_probe", "_tools")
+    offenders = [
+        line for line in lines if line.rstrip("/") in must_anchor and not line.startswith("/")
+    ]
+    assert not offenders, (
+        f"这些 .gitignore 模式没锚定到根，会匹配任意层级：{offenders}\n"
+        "改成 `/data/` 这样——否则哪天有人建了同名源码目录就会被静默忽略。"
+    )
+
+
+def test_every_package_under_src_has_tracked_files() -> None:
+    """`src/` 下**每个包含 `__init__.py` 的目录**都必须至少有一个文件被跟踪。
+
+    上一条查"有没有被忽略的文件"，这一条从**反面**查：
+    包目录存在、但整个包一个文件都没进仓库——**这正是当时事故的形态**。
+    两条一起才完整。
+    """
+    src = PROJECT_ROOT / "src"
+    if not src.is_dir():
+        pytest.skip("没有 src 目录")
+
+    tracked = set(_tracked_files())
+    empty_packages: list[str] = []
+    for init in src.rglob("__init__.py"):
+        package_dir = init.parent
+        relative = package_dir.relative_to(PROJECT_ROOT).as_posix() + "/"
+        if not any(path.startswith(relative) for path in tracked):
+            empty_packages.append(relative)
+
+    assert not empty_packages, (
+        f"这些包目录一个文件都没进仓库：{empty_packages}\n"
+        "包在磁盘上存在但没被提交——**新克隆的仓库会 import 失败**。"
+    )

@@ -1,8 +1,13 @@
 # 反洗钱可疑交易分析 Agent
 
+[![CI](https://github.com/xiaohe9/aml-graphrag-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaohe9/aml-graphrag-agent/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![mypy: strict](https://img.shields.io/badge/mypy-strict-blue)](pyproject.toml)
+
 > 一个**能跑、能评、能被追问**的工业级 Agent 项目。
 >
-> 用图数据库 + 图算法 + GraphRAG 检测可疑资金结构，
+> 用 **Neo4j 图数据库 + 图算法 + GraphRAG** 检测可疑资金结构，
 > **每一条结论都能回链到原始交易**。
 
 **数据集**：[IBM AMLSim](https://www.kaggle.com/datasets/anshankul/ibm-amlsim-example-dataset)（Apache 2.0）
@@ -184,6 +189,33 @@ docs/         需求 → 设计 → 评测的完整文档链
 2. **「未产出结论」必须单独计数**——
    **「我看了，没问题」和「我没看」是两件事**。
    把沉默折算成「无异常」会同时**压低检出率、又虚假地压低误报率**，让所有指标失真。
+
+---
+
+## 项目状态
+
+**诚实版**——做到哪、还差什么，一目了然。
+
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| **M1** | 数据可行性验证、数据画像、真值设计 | ✅ 完成 |
+| **M2** | Neo4j 建图（132 万边）、一致性校验 | ✅ 完成 |
+| **M3** | 检测层（结构信号 + 真环检测）+ 评测 | ✅ 完成 |
+| **M3-B** | 标签泄漏三层防御 | ✅ 完成 |
+| **CI** | 静态检查 + 单元测试 + 集成测试 | ✅ 完成 |
+| **M4** | GraphRAG 检索融合（向量库 + 融合） | ⬜ 未开始 |
+| **M5** | Agent 编排（工具调用、终止条件） | ⬜ 未开始 |
+| **M6** | 前端与证据展示 | ⬜ 未开始 |
+| **M7** | 一键部署、评测报告 | ⬜ 未开始 |
+
+**已知问题：**
+
+- **评测脚本要 28 分钟**（无缓存时）——从图库拉 132 万行 + 16 个方法各自排序。
+  已加排序缓存，但**还需要优化**；
+- **`cycle` 召回只有 15.8%**——真环检测有信号，但还不足以改变整体结论；
+- **`fan_in` 的好成绩来自平凡规则**，不是结构特征。
+
+**这些不是"待办清单"，是"我知道问题在哪"的证据。**
 
 ---
 
