@@ -19,17 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## Third-party data
-
-The dataset used by this project — **IBM AMLSim Example Dataset** — is
-licensed under the **Apache License 2.0** and is **not** included in this
-repository. It is fetched on demand by `scripts/fetch_data.py`.
-
-The dataset is derived from the [IBM AMLSim](https://github.com/IBM/AMLSim)
-project, which is intended to provide a multi-agent based simulator that
-generates synthetic banking transaction data together with a set of known
-money laundering patterns — mainly for the purpose of testing machine
-learning models and graph algorithms.
