@@ -31,7 +31,14 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from aml_agent import paths  # noqa: E402
-from aml_agent.agent import DEFAULT_MAX_STEPS, AgentRun, OllamaChat, Toolbox, run  # noqa: E402
+from aml_agent.agent import (  # noqa: E402
+    DEFAULT_MAX_STEPS,
+    AgentRun,
+    BaselineIndex,
+    OllamaChat,
+    Toolbox,
+    run,
+)
 from aml_agent.data import loader  # noqa: E402
 from aml_agent.embed import EmbeddingError, HashingEmbedder  # noqa: E402
 from aml_agent.eval.agent_eval import (  # noqa: E402
@@ -41,7 +48,7 @@ from aml_agent.eval.agent_eval import (  # noqa: E402
     question_for,
     sample_cases,
 )
-from aml_agent.graph import connect  # noqa: E402
+from aml_agent.graph import connect, load  # noqa: E402
 from aml_agent.knowledge import load_patterns  # noqa: E402
 from aml_agent.retrieve import build_index, load_index  # noqa: E402
 
@@ -71,6 +78,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--out", default=None, help="把逐案例明细写到 JSON")
     parser.add_argument("--dry-run", action="store_true", help="只抽样，不跑模型")
+    parser.add_argument(
+        "--no-baseline",
+        action="store_true",
+        help="不加载全图基线（用来对比'接上基线前后'的差异）",
+    )
     args = parser.parse_args(argv)
 
     dataset = loader.load()
@@ -113,6 +125,20 @@ def main(argv: list[str] | None = None) -> int:
     outcomes: list[CaseOutcome] = []
     started = time.monotonic()
 
+    # ⚠️ 基线：**一次性算全图分数与分位**（约 2–4 秒），之后每个案例查表 O(1)。
+    #
+    # 这是 M7 评测实测出来的缺口的修法：Agent 之前只看得到「180 笔」，
+    # 看不到「全图第 62 分位」——**不是判断错了，是没有基线可依**。
+    baseline = None
+    if not args.no_baseline:
+        print("\n构造全图基线（检测分数 + 特征分位）…", flush=True)
+        baseline_started = time.monotonic()
+        baseline = BaselineIndex.build(load.load_edges())
+        print(
+            f"  完成，覆盖 {baseline.account_count} 个账户"
+            f"（{time.monotonic() - baseline_started:.1f} 秒）"
+        )
+
     try:
         for position, case in enumerate(cases, start=1):
             toolbox = Toolbox(
@@ -121,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
                 index=index,
                 embedder=embedder,
                 min_similarity=args.min_similarity,
+                baseline=baseline,
             )
             print(f"\n[{position}/{len(cases)}] {case.account_key} …", flush=True)
             agent_run: AgentRun = run(
@@ -153,7 +180,10 @@ def main(argv: list[str] | None = None) -> int:
         seconds=time.monotonic() - started,
         temperature=args.temperature,
         max_steps=args.max_steps,
-        notes=notes,
+        notes=(
+            *notes,
+            f"基线：{'已接（get_detector_scores 可用）' if baseline else '未接（--no-baseline）'}",
+        ),
     )
     print()
     print(result.render())

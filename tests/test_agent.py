@@ -523,7 +523,7 @@ def test_investigation_tool_names_are_derived_from_the_schemas() -> None:
     （`.gitignore`、查询审计、YAML 扫描）。
     """
     names = investigate_tool_names()
-    assert len(names) == 4, f"工具契约里是 4 个侦查工具，实际 {names}"
+    assert len(names) == 5, f"工具契约里是 5 个侦查工具，实际 {names}"
     assert CONCLUDE_TOOL_NAME not in names, "结论工具不算侦查工具"
 
 

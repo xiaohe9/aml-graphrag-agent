@@ -150,18 +150,46 @@ INVESTIGATION_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
     {
         "type": "function",
         "function": {
+            "name": "get_detector_scores",
+            "description": (
+                "查一个账户**相对全图的位置**：检测分数分位 + 若干特征的分位。"
+                "**当你看到某个数值但不确定它算大还是算小时，用它**——"
+                "例如你看到'180 笔、金额全同'，它能告诉你这在全图里排第几分位。"
+                "⚠️ 分位是**相对排名，不是判断**：分位高不等于有问题。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_key": {
+                        "type": "string",
+                        "description": "账户键，形如 amlsim:4122",
+                    }
+                },
+                "required": ["account_key"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "match_patterns",
             "description": (
                 "把你观察到的结构用自然语言描述出来，"
                 "去匹配已知的洗钱手法（知识库有图结构模式与监管类型学两类）。"
-                "**返回的是'像什么'，不是'就是什么'**，请据此谨慎表述。"
+                "**参数 `structure_description` 要放一段自然语言描述**"
+                "（例如「一个账户向多个账户各转多笔相同金额」），"
+                "**不是账户 ID，也不是结构化数据**。"
+                "返回的是'像什么'，不是'就是什么'，请据此谨慎表述。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "structure_description": {
                         "type": "string",
-                        "description": "用自然语言描述你看到的资金结构",
+                        "description": (
+                            "用**自然语言**描述你看到的资金结构。"
+                            "例：「多个账户向同一个账户集中转入，金额相近」"
+                        ),
                     },
                     "top_k": {
                         "type": "integer",
@@ -237,12 +265,25 @@ class Toolbox:
     index: Any
     embedder: Embedder
     min_similarity: float = 0.35
+    #: **基线索引**：一个账户相对全图的位置。
+    #:
+    #: `None` 表示没有——此时**不提供 `get_detector_scores` 工具**，
+    #: 而不是提供一个"总是报错"的工具。**给模型一个必然失败的工具，
+    #: 只会浪费它有限的步数预算。**
+    baseline: Any | None = None
     #: 记录每个工具被调用了多少次——**用于诊断"Agent 是不是在瞎调"**
     call_counts: dict[str, int] = field(default_factory=dict)
 
     def schemas(self, *, include_conclude: bool = True) -> list[dict[str, Any]]:
-        """本轮要提供给模型的工具清单。"""
-        schemas = list(INVESTIGATION_TOOL_SCHEMAS)
+        """本轮要提供给模型的工具清单。
+
+        ⚠️ `get_detector_scores` **只在有基线时才出现**——见 `baseline` 字段的说明。
+        """
+        schemas = [
+            schema
+            for schema in INVESTIGATION_TOOL_SCHEMAS
+            if self.baseline is not None or schema["function"]["name"] != "get_detector_scores"
+        ]
         if include_conclude:
             schemas.append(CONCLUDE_TOOL_SCHEMA)
         return schemas
@@ -259,6 +300,8 @@ class Toolbox:
                 return self._trace(arguments)
             if name == "match_patterns":
                 return self._match(arguments)
+            if name == "get_detector_scores":
+                return self._detector_scores(arguments)
         except ToolArgumentError as exc:
             # 参数错 → **返回给模型让它自己改**，而不是中断整个循环
             return ToolResult(
@@ -387,6 +430,44 @@ class Toolbox:
                 "这不等于两者没有关联——只是在这个长度限制内没找到。"
             )
         return ToolResult(name="trace_path", content=_to_json(payload), payload=payload)
+
+    def _detector_scores(self, arguments: Mapping[str, Any]) -> ToolResult:
+        """查一个账户相对全图的位置。
+
+        ## 这是 M7 评测实测出来的缺口的修法
+
+        Agent 评测跑出 FPR = 100%，而根因是**它没有基线**：
+        看到「180 笔、金额全同」时，它不知道这在全图里算多还是算少。
+
+        而这个工具给它的正是"在全图排第几分位"。
+        """
+        key = self._as_key(arguments, "account_key")
+        if self.baseline is None:
+            return ToolResult(
+                name="get_detector_scores",
+                content="基线索引不可用（这个部署没有加载全图分数）。",
+                ok=False,
+                payload={"error": "no_baseline"},
+            )
+
+        found = self.baseline.lookup(key)
+        if found is None:
+            # ⚠️ "查不到"和"分位很低"是两回事。
+            # 返回一个 0 分位会让模型以为"这个账户排名最低"——
+            # 而实际是**它根本不在图里**。
+            return ToolResult(
+                name="get_detector_scores",
+                content=(
+                    f"账户 {key} 不在图里——**这不等于它正常**，"
+                    "只说明这个键没有任何交易记录。请核对账户键是否正确。"
+                ),
+                ok=False,
+                payload={"error": "account_not_found", "account": key},
+            )
+
+        payload = found.as_payload()
+        payload["rendered"] = self.baseline.render(found)
+        return ToolResult(name="get_detector_scores", content=_to_json(payload), payload=payload)
 
     def _match(self, arguments: Mapping[str, Any]) -> ToolResult:
         description = self._as_key(arguments, "structure_description")

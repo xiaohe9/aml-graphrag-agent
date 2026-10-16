@@ -26,6 +26,13 @@
 > 所以 `AgentRun.exhausted` 是**独立字段**，永远不会被折算成"无异常"。
 """
 
+from aml_agent.agent.baseline import (
+    ACCOUNT_FEATURES,
+    AccountBaseline,
+    BaselineIndex,
+    FeaturePosition,
+    numpy_percentile,
+)
 from aml_agent.agent.llm import (
     DEFAULT_MODEL,
     ChatModel,
@@ -62,6 +69,7 @@ from aml_agent.agent.tools import (
 )
 
 __all__ = [
+    "ACCOUNT_FEATURES",
     "CONCLUDE_TOOL_NAME",
     "CONCLUDE_TOOL_SCHEMA",
     "DEFAULT_MAX_STEPS",
@@ -74,10 +82,13 @@ __all__ = [
     "MAX_PATH_LENGTH",
     "MAX_TOP_K",
     "SYSTEM_PROMPT",
+    "AccountBaseline",
     "AgentRun",
+    "BaselineIndex",
     "ChatModel",
     "ChatResponse",
     "Conclusion",
+    "FeaturePosition",
     "LLMError",
     "OllamaChat",
     "ScriptedChat",
@@ -87,6 +98,7 @@ __all__ = [
     "ToolResult",
     "Toolbox",
     "investigate_tool_names",
+    "numpy_percentile",
     "run",
     "says",
     "tool_call",
