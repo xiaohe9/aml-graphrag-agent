@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>反洗钱可疑交易调查报告 · amlsim:522</title>
+<style>
+:root {
+  --ink: #16181d; --muted: #6b7280; --line: #e5e7eb; --bg: #f7f8fa;
+  --fact: #1d4ed8; --judge: #b45309; --knowledge: #6d28d9; --missing: #b91c1c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 32px 20px 80px; background: var(--bg); color: var(--ink);
+  font: 15px/1.75 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+main { max-width: 960px; margin: 0 auto; }
+h1 { font-size: 25px; margin: 0 0 4px; }
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 26px; }
+.verdict {
+  border-radius: 12px; padding: 20px 24px; margin-bottom: 26px;
+  background: #fff; border: 1px solid var(--line); border-left-width: 5px;
+}
+.verdict.suspicious { border-left-color: #dc2626; }
+.verdict.normal { border-left-color: #16a34a; }
+.verdict.none { border-left-color var(--missing); border-left-color: var(--missing); }
+.verdict h2 { margin: 0 0 8px; font-size: 20px; }
+.reason { margin: 10px 0 0; }
+section { background: #fff; border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px 24px; margin-bottom: 18px; }
+section > h3 { margin: 0 0 4px; font-size: 16px; }
+.nature { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; }
+.tag { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px;
+       margin-right: 6px; color: #fff; vertical-align: 2px; }
+.tag.fact { background: var(--fact); }
+.tag.judge { background: var(--judge); }
+.tag.knowledge { background: var(--knowledge); }
+.tag.missing { background: var(--missing); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.bar { position: relative; height: 7px; background: #eef0f4; border-radius: 4px; width: 100%; }
+.bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--fact); }
+.findings li { margin-bottom: 10px; }
+.basis { color: var(--muted); font-size: 12.5px; display: block; }
+.missing { border-left: 5px solid var(--missing); background: #fef2f2; }
+.missing > h3 { color: var(--missing); }
+.steps { font-size: 13px; }
+.steps li { margin-bottom: 12px; }
+.cmd { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+       background: #f3f4f6; padding: 2px 7px; border-radius: 5px; }
+.tool-ok { color: #16a34a; font-weight: 600; }
+.tool-fail { color: var(--missing); font-weight: 600; }
+footer { color: var(--muted); font-size: 12.5px; text-align: center; margin-top: 34px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>反洗钱可疑交易调查报告</h1>
+  <p class="sub">调查对象 <strong>amlsim:522</strong></p>
+  <p class="sub">temperature=0.1　·　max_steps=6　·　model=qwen3:4b</p>
+  <div class="verdict suspicious"><h2>🔴 存在可疑迹象</h2><p class="sub">置信度 0.70　·　2 步　·　60 秒</p><p class="reason">该账户向amlsim:9223转出180笔相同金额（593.29元），时间跨度199天；全图分位0.8804，检测到cycle_length_3（强）和small_amount（强）信号。</p></div><section><h3><span class="tag judge">相对位置</span>该账户在全图中的位置</h3><p class="nature">检测分数与各特征的<strong>分位</strong>——<strong>这是相对排名，不是判断</strong>：分位高不等于有问题。</p><p>检测分数分位：<strong>88%</strong></p><table><thead><tr><th>特征</th><th class="num">取值</th><th class="num">分位</th><th>分布</th></tr></thead><tbody><tr><td>转出去向数</td><td class="num">181.0</td><td class="num">81%</td><td><div class="bar"><i style="width:81.0%"></i></div></td></tr><tr><td>转入来源数</td><td class="num">23.0</td><td class="num">9%</td><td><div class="bar"><i style="width:9.2%"></i></div></td></tr><tr><td>单笔金额中位数</td><td class="num">593.3</td><td class="num">79%</td><td><div class="bar"><i style="width:79.5%"></i></div></td></tr><tr><td>同一对手方的最大笔数</td><td class="num">180.0</td><td class="num">94%</td><td><div class="bar"><i style="width:94.2%"></i></div></td></tr><tr><td>互转笔数占比</td><td class="num">0.0</td><td class="num">38%</td><td><div class="bar"><i style="width:37.8%"></i></div></td></tr></tbody></table></section><section><h3><span class="tag fact">硬数据</span>一、结构化事实</h3><p class="nature">来自图数据库，<strong>未经推断</strong>。按账户对归并——<strong>图里每条边都在</strong>，未做丢失信息的聚合。</p><table><thead><tr><th>对手方</th><th>方向</th><th class="num">笔数</th><th>金额</th><th>时间跨度</th></tr></thead><tbody><tr><td>amlsim:9223</td><td>out</td><td class="num">180</td><td>593.29（每笔相同）</td><td>t=0..199</td></tr><tr><td>amlsim:7947</td><td>out</td><td class="num">1</td><td>10.36（每笔相同）</td><td>t=144</td></tr></tbody></table></section><section><h3><span class="tag judge">算法判断</span>二、各信号的实测可靠度</h3><p class="nature">依赖阈值与算法选择，<strong>依据来自本项目在这份数据上的实测</strong>——不是形容词，是数字。</p><p class="nature">⚠️ <strong>弱信号被明确标注</strong>：如果「环长 2」和「环长 3」以同样格式呈现，读的人没有依据区别对待它们——<strong>而不标注就等于在误导。</strong></p><table><thead><tr><th>信号</th><th>实测等级与依据</th></tr></thead><tbody><tr><td><code>cycle_length_3</code></td><td>{&#x27;grade&#x27;: &#x27;强&#x27;, &#x27;basis&#x27;: &#x27;实测：环长 3 在标注交易中的占比约为普通交易的 40 倍&#x27;}</td></tr><tr><td><code>cycle_length_4</code></td><td>{&#x27;grade&#x27;: &#x27;中&#x27;, &#x27;basis&#x27;: &#x27;实测：环长 4 约为 5 倍&#x27;}</td></tr><tr><td><code>cycle_length_2</code></td><td>{&#x27;grade&#x27;: &#x27;很弱，不建议作为依据&#x27;, &#x27;basis&#x27;: &#x27;实测：环长 2（互转）在正常交易里同样普遍，约 1.0 倍——全图 18.4% 的边本来就是互转&#x27;}</td></tr><tr><td><code>small_amount</code></td><td>{&#x27;grade&#x27;: &#x27;强&#x27;, &#x27;basis&#x27;: &#x27;实测：涉诈金额中位数只有正常交易的十五分之一；该信号单独召回 90.7%&#x27;}</td></tr><tr><td><code>pair_tx_count_low</code></td><td>{&#x27;grade&#x27;: &#x27;中&#x27;, &#x27;basis&#x27;: &#x27;实测：标注交易的同对笔数中位数 1–2，而全图为 20；该信号 cycle 召回 12.5%&#x27;}</td></tr><tr><td><code>high_degree</code></td><td>{&#x27;grade&#x27;: &#x27;弱&#x27;, &#x27;basis&#x27;: &#x27;实测：标注交易的收款方入度中位数（121 / 145）反而低于全图（233）——方向与直觉相反&#x27;}</td></tr><tr><td><code>reciprocal_edge</code></td><td>{&#x27;grade&#x27;: &#x27;无效&#x27;, &#x27;basis&#x27;: &#x27;实测：标注 19.3% vs 全图 18.4%，几乎没有差别&#x27;}</td></tr></tbody></table></section><section><h3><span class="tag knowledge">语义知识</span>三、相似手法</h3><p class="nature">语义匹配，<strong>不代表认定</strong>。</p><p>没有达到相似度下限的已知手法——<strong>这本身是有价值的结论</strong>：它不像任何已知手法。</p></section><section><h3>附：Agent 的执行轨迹</h3><p class="nature">每一步调了什么工具、拿到了什么——<strong>结论能不能被核对，取决于这一节</strong>。</p><ul class="steps"><li><strong>第 1 步</strong>　12 秒<br><span class="cmd">investigate_account({&#x27;account_key&#x27;: &#x27;amlsim:522&#x27;, &#x27;hops&#x27;: 1})</span><br><span class="tool-ok">← 成功</span> <span class="sub">{&quot;account&quot;: &quot;amlsim:522&quot;, &quot;hops&quot;: 1, &quot;edge_count&quot;: 181, &quot;relation_count&quot;: 2, &quot;relations&quot;: [{&quot;counterparty&quot;: &quot;amlsim:9223&quot;, &quot;direction&quot;: &quot;out&quot;, &quot;count&quot;: 180, &quot;amount&quot;: &quot;593.29（每笔相同）&quot;, &quot;time_span&quot;: &quot;t=0..199&quot;}, {&quot;counterpa</span></li><li><strong>第 2 步</strong>　48 秒<br><span class="cmd">submit_conclusion({&#x27;suspicious&#x27;: True, &#x27;confidence&#x27;: 0.7, &#x27;reason&#x27;: &#x27;该账户向amlsim:9223转出180笔相同金额（593.29元），时间跨度199天；全图分位0.8804，检测到cycle_length_3（强）和small_amount（强）信号。&#x27;, &#x27;m)</span></li></ul></section>
+  <footer>本报告由本地模型与图数据库生成，<strong>自包含、无外部依赖</strong>。
+  三类证据按可信度分层展示；<strong>分位是相对排名，不是判断</strong>。</footer>
+</main>
+</body>
+</html>
