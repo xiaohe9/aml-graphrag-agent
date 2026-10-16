@@ -208,3 +208,58 @@ def test_render_is_human_readable() -> None:
     assert "hub" in text
     assert "分位" in text
     assert "转出去向数" in text
+
+
+# --------------------------------------------------------------------------- #
+#  5. ★ 紧凑模式（内联进 investigate_account 时用）
+# --------------------------------------------------------------------------- #
+
+
+def test_compact_payload_drops_the_full_basis_but_keeps_the_grades() -> None:
+    """内联时**不能带上 7 条信号的完整依据**——每次调查都塞一遍会把上下文挤爆。
+
+    但**等级必须留着**：只看 `"弱"` 也能让模型知道"环长 2 这信号别太当真"。
+
+    实测教训：把基线和事实拆成两个工具之后，
+    Agent 平均步数从 3.0 涨到 5.9、耗尽率从 10% 涨到 30%
+    ——**它把预算花在"多查一次"上了**。
+    """
+    compact = _sample().as_payload(compact=True)
+    full = _sample().as_payload()
+
+    signals = compact["measuredSignals"]
+    assert isinstance(signals, dict)
+    # 等级在
+    assert signals["cycle_length_2"] == "很弱，不建议作为依据"
+    assert signals["cycle_length_3"] == "强"
+    # 但完整依据不在（它是一个字符串而不是 {grade, basis}）
+    assert not isinstance(signals["cycle_length_3"], dict)
+    assert "40" not in str(signals)
+    # 全文版才有
+    assert "40" in full["measuredSignals"]["cycle_length_3"]["basis"]
+    # 而且要告诉模型"完整依据去哪拿"
+    assert "get_detector_scores" in compact["measuredSignalsNote"]
+
+
+def test_compact_payload_still_carries_the_warning() -> None:
+    """**紧凑模式可以省掉依据，但绝不能省掉那句警告。**
+
+    否则模型会把分位直接当成结论——那是这个工具最危险的误用方式。
+    """
+    compact = _sample().as_payload(compact=True)
+    assert "不是判断" in str(compact["howToRead"])
+    assert "不等于有问题" in str(compact["howToRead"])
+
+
+def test_compact_payload_is_smaller_than_the_full_one() -> None:
+    import json
+
+    compact = len(json.dumps(_sample().as_payload(compact=True), ensure_ascii=False))
+    full = len(json.dumps(_sample().as_payload(), ensure_ascii=False))
+    assert compact < full, f"紧凑模式应该更小：{compact} vs {full}"
+
+
+def test_compact_payload_is_json_serialisable() -> None:
+    import json
+
+    json.dumps(_sample().as_payload(compact=True), ensure_ascii=False)

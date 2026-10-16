@@ -78,8 +78,10 @@ INVESTIGATION_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
             "name": "investigate_account",
             "description": (
                 "侦查一个账户的邻域，一次返回它相关的全部交易边（按对方账户归并，"
-                "含笔数、金额区间、时间跨度）。**这是你应该最先调用的工具**——"
-                "一次调用就能看到全貌。"
+                "含笔数、金额区间、时间跨度）"
+                "**以及它自己相对全图的位置（基线分位）**。"
+                "**这是你应该最先、也往往只需要调用的工具**——"
+                "一次调用就能看到全貌和它在全图中的位置。"
             ),
             "parameters": {
                 "type": "object",
@@ -152,10 +154,10 @@ INVESTIGATION_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
         "function": {
             "name": "get_detector_scores",
             "description": (
-                "查一个账户**相对全图的位置**：检测分数分位 + 若干特征的分位。"
-                "**当你看到某个数值但不确定它算大还是算小时，用它**——"
-                "例如你看到'180 笔、金额全同'，它能告诉你这在全图里排第几分位。"
-                "⚠️ 分位是**相对排名，不是判断**：分位高不等于有问题。"
+                "查**某个账户**在全图的位置（检测分数分位 + 5 个特征分位 + 各信号的实测依据）。"
+                "⚠️ **被调查对象自己的位置已经在 investigate_account 的返回里了，不要重复查。**"
+                "这个工具是用来查**别的账户**的——"
+                "例如你想知道某个对手方账户算不算异常。"
             ),
             "parameters": {
                 "type": "object",
@@ -382,6 +384,26 @@ class Toolbox:
             payload["truncated"] = (
                 f"结果被截断：只取了前 {len(neighborhood.edges)} 条边，可能还有更多关联未返回"
             )
+
+        # ⚠️ **把被调查对象自己的基线内联进来。**
+        #
+        # 实测教训：把基线和事实拆成两个工具之后，Agent 平均步数从 3.0 涨到 5.9，
+        # 步数耗尽率从 10% 涨到 30%——**它把预算花在"多查一次"上了**。
+        #
+        # 而这与 `docs/14` §14.5「工具粒度是刻意的」是同一条原则：
+        # 产线项目栽在"工具太细、步数全花在逐个查询上"，**这次我又犯了一次**。
+        #
+        # 所以：**一次调用就同时给出事实和它相对全图的位置。**
+        if self.baseline is not None:
+            found = self.baseline.lookup(neighborhood.center)
+            if found is not None:
+                payload["baseline"] = found.as_payload(compact=True)
+                payload["baseline"]["note"] = (
+                    "这是**被调查对象自己**的位置，已经给你了——"
+                    "**不需要再单独查一次**。"
+                    "如果要看**对手方**账户的位置，才用 get_detector_scores。"
+                )
+
         return ToolResult(name="investigate_account", content=_to_json(payload), payload=payload)
 
     def _transactions(self, arguments: Mapping[str, Any]) -> ToolResult:

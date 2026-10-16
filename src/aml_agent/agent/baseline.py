@@ -77,8 +77,24 @@ class AccountBaseline:
     detector_percentile: float
     features: tuple[FeaturePosition, ...]
 
-    def as_payload(self) -> dict[str, Any]:
-        return {
+    def as_payload(self, *, compact: bool = False) -> dict[str, Any]:
+        """转成工具结果。
+
+        ## 为什么有 `compact`
+
+        `investigate_account` 会把**被调查对象自己的**基线**内联**返回
+        （省掉单独查一次的那一步——实测这一步让平均步数从 3.0 涨到 5.9）。
+
+        但内联时**不能带上完整的 `measuredSignals`**：那是 7 条信号的完整依据，
+        每次调查都塞一遍会把上下文挤爆，**而模型的注意力是有限的**。
+
+        所以内联时用紧凑模式：**只给信号的等级**（强 / 弱 / 无效），
+        完整依据留给单独调用 `get_detector_scores` 时拿。
+
+        而 `howToRead` 那段**无论哪种模式都必须带上**——
+        它是防止模型把分位当成结论的唯一屏障。
+        """
+        payload: dict[str, Any] = {
             "account": self.account,
             "detectorScore": round(self.detector_score, 4),
             "detectorPercentile": round(self.detector_percentile, 4),
@@ -97,11 +113,19 @@ class AccountBaseline:
                 "分位高不等于有问题——它只说明这个值在全图里偏大/偏小。"
                 "请结合实测依据（measuredSignals）判断这个信号值不值得采信。"
             ),
-            "measuredSignals": {
+        }
+        if compact:
+            # 只给等级，不给依据全文
+            payload["measuredSignals"] = {
+                key: grade for key, (grade, _) in MEASURED_SIGNALS.items()
+            }
+            payload["measuredSignalsNote"] = "这里只有等级；要完整依据请用 get_detector_scores 查"
+        else:
+            payload["measuredSignals"] = {
                 key: {"grade": grade, "basis": basis}
                 for key, (grade, basis) in MEASURED_SIGNALS.items()
-            },
-        }
+            }
+        return payload
 
 
 # --------------------------------------------------------------------------- #

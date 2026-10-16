@@ -28,6 +28,7 @@ from aml_agent.agent import (
     DEFAULT_MAX_STEPS,
     FORCED_NUDGE,
     FORCED_STEP_ATTEMPTS,
+    SYSTEM_PROMPT,
     AgentRun,
     Conclusion,
     ScriptedChat,
@@ -525,6 +526,48 @@ def test_investigation_tool_names_are_derived_from_the_schemas() -> None:
     names = investigate_tool_names()
     assert len(names) == 5, f"工具契约里是 5 个侦查工具，实际 {names}"
     assert CONCLUDE_TOOL_NAME not in names, "结论工具不算侦查工具"
+
+
+# --------------------------------------------------------------------------- #
+#  11. ★ 基线内联（把"多查一次"的那一步省掉）
+# --------------------------------------------------------------------------- #
+
+
+def _schema(name: str) -> dict[str, Any]:
+    from aml_agent.agent import INVESTIGATION_TOOL_SCHEMAS
+
+    return next(
+        schema for schema in INVESTIGATION_TOOL_SCHEMAS if schema["function"]["name"] == name
+    )
+
+
+def test_investigate_schema_promises_the_baseline_inline() -> None:
+    """`investigate_account` 的描述必须**明说它返回基线**。
+
+    实测教训：把基线和事实拆成两个工具之后，Agent 平均步数 3.0 → 5.9、
+    耗尽率 10% → 30%。**它把预算花在"多查一次"上了。**
+
+    而这与 `docs/14` §14.5「工具粒度是刻意的」是同一条原则——
+    产线项目栽在"工具太细"，**这次我又犯了一次**。
+
+    描述里不说清楚，模型仍然会去单独查一次。
+    """
+    description = _schema("investigate_account")["function"]["description"]
+    assert "基线" in description or "全图的位置" in description
+    assert "只需要调用" in description or "最先" in description
+
+
+def test_detector_scores_schema_forbids_a_redundant_call() -> None:
+    """第二个工具的描述要**明确禁止重复查被调查对象自己**。"""
+    description = _schema("get_detector_scores")["function"]["description"]
+    assert "不要重复查" in description or "已经在" in description
+    assert "别的账户" in description or "对手方" in description
+
+
+def test_system_prompt_discourages_step_waste() -> None:
+    """系统提示词要**明说步数很紧**，否则模型会一直"再多查一点"。"""
+    assert "步数" in SYSTEM_PROMPT
+    assert "信息不足" in SYSTEM_PROMPT, "「信息不足」要被明确认可为合格结论"
 
 
 # --------------------------------------------------------------------------- #
