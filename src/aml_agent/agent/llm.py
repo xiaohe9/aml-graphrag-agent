@@ -135,6 +135,15 @@ class OllamaChat:
     timeout: float = 300.0
     #: 关闭思考模式。实测收益很小（9.8 vs 12.6 秒），默认不开。
     think: bool | None = None
+    #: 采样温度。
+    #:
+    #: ⚠️ **Agent 必须用低温**，这不只是"更好"的问题——
+    #: 实测同一个案例跑两次：一次 2 步给出正确结论，另一次 5 步还耗尽步数。
+    #: **一个行为不可复现的 Agent 根本没法评测**（同一输入两次结果不同，
+    #: 测出来的任何数字都没有意义）。
+    #:
+    #: 默认 0.1：保留极少量随机性以避免完全退化的重复，但足够稳定。
+    temperature: float = 0.1
 
     def chat(
         self, messages: Sequence[Mapping[str, Any]], *, tools: Sequence[Mapping[str, Any]]
@@ -143,6 +152,8 @@ class OllamaChat:
             "model": self.model,
             "messages": list(messages),
             "stream": False,
+            # Ollama 把采样参数放在 `options` 里，不是顶层
+            "options": {"temperature": self.temperature},
         }
         if tools:
             body["tools"] = list(tools)

@@ -525,3 +525,20 @@ def test_investigation_tool_names_are_derived_from_the_schemas() -> None:
     names = investigate_tool_names()
     assert len(names) == 4, f"工具契约里是 4 个侦查工具，实际 {names}"
     assert CONCLUDE_TOOL_NAME not in names, "结论工具不算侦查工具"
+
+
+# --------------------------------------------------------------------------- #
+#  10. 采样温度（**不稳定的 Agent 没法评测**）
+# --------------------------------------------------------------------------- #
+
+
+def test_ollama_chat_defaults_to_a_low_temperature() -> None:
+    """实测：同一个案例跑两次，一次 2 步成功、一次 5 步耗尽。
+
+    **一个行为不可复现的 Agent 根本没法评测**——
+    同一输入两次结果不同，测出来的任何数字都没有意义。
+    """
+    from aml_agent.agent import OllamaChat
+
+    chat = OllamaChat()
+    assert chat.temperature <= 0.2, f"Agent 温度应该很低，实际 {chat.temperature}"
