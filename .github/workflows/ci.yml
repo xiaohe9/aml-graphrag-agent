@@ -1,0 +1,103 @@
+# 这个文件的设计要点：**CI 跑的命令，就是开发者本地跑的命令。**
+#
+# 门禁清单本身写在 `scripts/check.py` 里，CI 只是调用它。
+#
+# **为什么这样分**：如果 CI 和本地各写一套命令，两者迟早不一致，
+# 然后就会出现「CI 绿但本地红」或反过来——**一旦门禁不可信，人就会开始绕过它**。
+# 唯一的办法是**只有一份命令定义**。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # 允许手动触发——改完 CI 想立刻验证时不用推一个空提交
+  workflow_dispatch:
+
+# 同一分支上推了新的，就取消旧的运行。
+# 省额度，也避免"上一次的失败"和"这一次的成功"同时挂在页面上让人误判。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------------------- #
+  #  快速档：不需要数据集，不需要图库。几十秒就能给反馈。
+  # ------------------------------------------------------------------------- #
+  checks:
+    name: 静态检查与单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: 安装依赖（按 lock 文件，保证可复现）
+        run: uv sync --frozen
+
+      - name: 跑门禁
+        run: uv run python scripts/check.py
+
+  # ------------------------------------------------------------------------- #
+  #  完整档：下载数据集、起真图库、建图、跑集成测试。
+  #
+  #  刻意**不依赖** checks 任务，两个并行跑：
+  #  checks 几十秒就给反馈，而这一档要几分钟——
+  #  串行只会让人多等，不会多发现任何问题。
+  # ------------------------------------------------------------------------- #
+  integration:
+    name: 图谱与集成测试
+    runs-on: ubuntu-latest
+
+    services:
+      neo4j:
+        image: neo4j:5-community
+        env:
+          NEO4J_AUTH: neo4j/aml-agent-dev
+          # 和 docker-compose.yml 保持一致的取值，避免"本地能跑 CI 挂"
+          NEO4J_server_memory_pagecache_size: 512M
+          NEO4J_server_memory_heap_max__size: 1G
+        ports:
+          - 7687:7687
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p aml-agent-dev 'RETURN 1'"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 20
+          --health-start-period 40s
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: 安装依赖
+        run: uv sync --frozen
+
+      # 数据集缓存起来：61 MB 每次重下既慢又没必要。
+      # key 用下载脚本的哈希——**脚本一改（比如期望行数变了），缓存就失效**，
+      # 这正是我们要的：数据契约变了必须重新验证。
+      - name: 缓存数据集
+        uses: actions/cache@v4
+        with:
+          path: data/extracted
+          key: amlsim-${{ hashFiles('scripts/fetch_data.py') }}
+
+      - name: 下载并核对数据集
+        run: uv run python scripts/fetch_data.py
+
+      - name: 建图并校验一致性
+        run: uv run python scripts/build_graph.py
+
+      - name: 跑完整门禁（含集成测试与标签泄漏审计）
+        run: uv run python scripts/check.py --integration

@@ -1,0 +1,42 @@
+# Neo4j —— 图存储层。
+#
+# **为什么用命名卷而不是把数据目录绑到项目里：**
+#
+# 1. 图数据是**派生产物**，可以从 CSV 重建，不该进 git；
+# 2. 本机的沙箱只允许子进程写「会话工作目录」，绑定挂载会踩到那个限制；
+#    命名卷由 Docker 自己管理，绕开了这个问题。
+#
+# 启动：  docker compose up -d neo4j
+# 浏览器：http://localhost:7474  （neo4j / aml-agent-dev）
+# 停止：  docker compose down          （保留数据）
+#        docker compose down -v       （连数据一起删，重建用）
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: aml-neo4j
+    ports:
+      - "7474:7474" # HTTP，Neo4j Browser
+      - "7687:7687" # Bolt，驱动连接
+    environment:
+      # 开发凭据。**这个值只用于本地图库**，不承载任何真实数据。
+      NEO4J_AUTH: neo4j/aml-agent-dev
+      # 132 万条边放得下：页缓存给大一点，让热点子图常驻内存。
+      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 2G
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      # 用 cypher-shell 探活，而不是 curl/wget——镜像里不一定有它们，
+      # 但 cypher-shell 一定在。
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p aml-agent-dev 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 40s
+
+volumes:
+  neo4j-data:
+  neo4j-logs:

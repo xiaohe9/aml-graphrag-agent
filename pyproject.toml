@@ -1,0 +1,75 @@
+[project]
+name = "aml-agent"
+version = "0.0.0"
+description = "基于图 + GraphRAG 的反洗钱可疑交易分析 Agent"
+requires-python = ">=3.12"
+dependencies = [
+    # 数据加载与统计。版本是**实测确认可用**的，不是随手写的。
+    "pandas==3.0.6",
+    # 图存储层：Neo4j 官方驱动
+    "neo4j==6.4.1",
+    # 图算法层。**分工是刻意的**：Neo4j 负责存储与查询（索引、Cypher、取 k 跳子图），
+    # 算法在 NetworkX 里跑。Neo4j 自己也要靠 GDS 插件才做社区发现——这是常见架构。
+    "networkx==3.7",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.17.0",
+    "mypy==2.4.0",
+    # pandas 的类型标注在 pandas-stubs 里，mypy --strict 需要它
+    "pandas-stubs>=2.3",
+    "types-networkx>=3.6",
+    # 校验 GitHub Actions workflow 能被真正解析。
+    # **正则不是解析器**——上个项目就是靠正则"检查"过一个非法 YAML，
+    # 结果 GitHub 整份拒收、所有 job 静默不运行。
+    "pyyaml==6.0.3",
+]
+
+[tool.uv]
+package = false
+
+# --------------------------------------------------------------------------- #
+#  代码规范
+# --------------------------------------------------------------------------- #
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# 告诉 ruff 我们用的是 src 布局。否则它会把 aml_agent 当成第三方包，
+# 要求它和 pytest 排在同一组——那是错的分类。
+src = ["src", "tests"]
+# 探针脚本和数据检查脚本不进 lint——它们是一次性的，不是产品代码
+extend-exclude = ["_probe", "data", ".venv"]
+
+[tool.ruff.lint]
+# BLE 是刻意开的：CLI 入口处会用宽泛的 `except Exception`，
+# 目的是把原因打清楚而不是抛栈。开了它，每个宽泛捕获都必须带理由，否则报错。
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "S", "BLE"]
+ignore = [
+    # 中文注释里出现全角标点是正常的，不值得报
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "scripts"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+# src 布局：测试要能 import aml_agent，而不必先安装成包
+pythonpath = ["src"]
+# `integration` 标记把"需要真东西"的测试和纯单元测试分开。
+# 分开的理由：单元测试必须**永远能跑**（几十毫秒，无依赖），
+# 否则开发者会因为"跑一次要下 61 MB 数据、还要起图库"而不跑测试。
+markers = [
+    "integration: 需要真实数据集或图库的测试（`-m 'not integration'` 可跳过）",
+]

@@ -1,0 +1,22 @@
+# 行尾统一为 LF。
+#
+# **为什么需要这个文件：** 本机是 Windows，而 CI 跑在 Linux 上。
+# 不统一行尾的话，Git 会报一堆"LF will be replaced by CRLF"，
+# 更糟的是**同一个文件在不同机器上会被认为整份都改了**——
+# 真正的改动淹没在行尾噪音里，code review 就没法看了。
+#
+# 统一成 LF（而不是 CRLF）的理由：CI 与生产都在 Linux，
+# 而 Windows 上的编辑器普遍能正确处理 LF。
+* text=auto eol=lf
+
+# 二进制文件不做行尾转换——转换会**损坏**它们
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.parquet binary
+
+# 锁文件与生成物：标记为 generated，让 GitHub 折叠它们的 diff
+uv.lock linguist-generated=true
