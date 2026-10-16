@@ -11,10 +11,13 @@
 
 from __future__ import annotations
 
+import random
+
 import pytest
 
 from aml_agent.eval.metrics import (
     Ranking,
+    build_curve,
     confusion_at,
     confusion_at_k,
     precision_at_k,
@@ -276,7 +279,118 @@ def test_ties_break_deterministically() -> None:
 
 
 # --------------------------------------------------------------------------- #
-#  6. 汇总
+#  6. ★ 快路径（numpy）与慢路径（Ranking）必须完全一致
+# --------------------------------------------------------------------------- #
+
+
+def _random_case(
+    count: int, *, tie_groups: int, positive_rate: float, seed: int
+) -> tuple[Ranking, frozenset[str], list[str], list[float], list[bool]]:
+    """造一组**大量并列**的随机数据。
+
+    并列是刻意制造的：快慢两条路唯一的差别就在**并列时的排序**，
+    不制造并列就等于没测到关键的那一点。
+    """
+    generator = random.Random(seed)
+    # 零填充的 id：字符串排序结果和整数排序一致，方便两条路对齐
+    ids = [f"t{index:06d}" for index in range(count)]
+    # 只有 tie_groups 种取值 → 制造大量并列
+    scores = [float(generator.randrange(tie_groups)) for _ in range(count)]
+    positives = [generator.random() < positive_rate for _ in range(count)]
+
+    ranking = Ranking(
+        scores=dict(zip(ids, scores, strict=True)),
+        no_answer=frozenset(),
+    )
+    truth = frozenset(item for item, flag in zip(ids, positives, strict=True) if flag)
+    return ranking, truth, ids, scores, positives
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+@pytest.mark.parametrize("tie_groups", [1, 2, 5, 1000])
+def test_curve_matches_the_ranking_path(seed: int, tie_groups: int) -> None:
+    """**快路径必须和慢路径算出完全一样的结果。**
+
+    这条测试是快路径存在的**前提**：numpy 版本快，但只有在"和已验证的实现
+    逐项一致"时才是可以信任的。没有它，快路径就是个隐患——
+    **而且是那种"数字看起来很合理、但其实是错的"隐患**。
+
+    参数里刻意包含 `tie_groups=1`（**全部并列**）——
+    这正是实测踩过的场景：全图 24 万条边分数完全相同。
+    """
+    ranking, truth, ids, scores, positives = _random_case(
+        500, tie_groups=tie_groups, positive_rate=0.1, seed=seed
+    )
+    # tie_break 用整数下标，与字符串 id 的排序一致（id 是零填充的）
+    curve = build_curve(scores, positives, tie_break=list(range(len(ids))))
+
+    assert curve.total_positive == len(truth)
+    assert curve.total_items == len(ids)
+
+    for k in (1, 2, 7, 50, 300, 500, 1000):
+        slow = confusion_at_k(ranking, truth, k=k)
+        fast = curve.confusion_at_k(k)
+        assert fast == slow, f"k={k}（tie_groups={tie_groups}）两条路的结果不一致"
+        assert curve.precision_at(k) == pytest.approx(slow.precision)
+        assert curve.recall_at(k) == pytest.approx(slow.recall)
+
+
+@pytest.mark.parametrize("target", [0.1, 0.5, 0.9, 0.99, 1.0])
+def test_curve_recall_point_matches_the_ranking_path(target: float) -> None:
+    """「固定召回下的精确率」也要一致——**包括达不到目标时的行为**。"""
+    ranking, truth, ids, scores, positives = _random_case(
+        400, tie_groups=3, positive_rate=0.2, seed=7
+    )
+    curve = build_curve(scores, positives, tie_break=list(range(len(ids))))
+
+    slow = precision_at_recall(ranking, truth, target_recall=target)
+    fast = curve.precision_at_recall(target)
+
+    assert fast.reached == slow.reached
+    assert fast.alerts == slow.alerts
+    assert fast.achieved_recall == pytest.approx(slow.achieved_recall)
+    assert fast.precision == pytest.approx(slow.precision)
+
+
+def test_curve_handles_all_positive_and_all_negative() -> None:
+    """全正例 / 全负例 / 空集——边界不能崩，也不能悄悄给个错的数。"""
+    all_pos = build_curve([1.0, 2.0, 3.0], [True, True, True])
+    assert all_pos.total_positive == 3
+    assert all_pos.recall_at(1) == pytest.approx(1 / 3)
+    assert all_pos.precision_at(3) == pytest.approx(1.0)
+
+    none_pos = build_curve([1.0, 2.0, 3.0], [False, False, False])
+    assert none_pos.total_positive == 0
+    assert none_pos.recall_at(3) == 0.0
+    assert none_pos.precision_at_recall(0.5).reached is False
+
+    empty = build_curve([], [])
+    assert empty.total_items == 0
+    assert empty.precision_at(10) == 0.0
+    assert empty.alerts_for_recall(0.5) is None
+
+
+def test_curve_rejects_mismatched_lengths() -> None:
+    """长度不一致必须报错，不能默默按短的那个算。"""
+    with pytest.raises(ValueError, match="长度不一致"):
+        build_curve([1.0, 2.0], [True])
+    with pytest.raises(ValueError, match="tie_break"):
+        build_curve([1.0, 2.0], [True, False], tie_break=[1])
+
+
+def test_curve_tie_break_actually_matters() -> None:
+    """并列时的顺序**会改变结果**——所以两条路必须用同一套 tie_break。"""
+    scores = [1.0, 1.0, 1.0]
+    positives = [True, False, False]
+    forward = build_curve(scores, positives, tie_break=[0, 1, 2])
+    backward = build_curve(scores, positives, tie_break=[2, 1, 0])
+    # 同分的三条里只有一条是正例，谁排第一决定了 P@1
+    assert forward.precision_at(1) == pytest.approx(1.0)
+    assert backward.precision_at(1) == pytest.approx(0.0)
+
+
+# --------------------------------------------------------------------------- #
+#  7. 汇总
 # --------------------------------------------------------------------------- #
 
 

@@ -66,40 +66,56 @@ FEATURE_COLUMNS: tuple[str, ...] = (
 )
 
 
-def compute_edge_features(graph: nx.MultiDiGraph[str], edges: pd.DataFrame) -> pd.DataFrame:
-    """给每条边算便宜的结构特征。
+def compute_edge_features(edges: pd.DataFrame) -> pd.DataFrame:
+    """给每条边算便宜的结构特征。复杂度 O(E)，**可以全图跑**。
 
-    复杂度 O(E)，**可以全图跑**——这正是第一层存在的意义。
+    ## ⚠️ 第一版签名是 `compute_edge_features(graph, edges)`——那个图参数是多余的
+
+    它当时用来做三件事，而**这三件事边表里都有**：
+
+    | 要算什么 | 第一版 | 现在 |
+    |---|---|---|
+    | 出度 / 入度 | `dict(graph.out_degree())` | `edges["sender"].value_counts()` |
+    | 是否互转 | `set(graph.edges())` + Python 循环 | `pd.MultiIndex.isin` |
+    | 同一对的笔数 | — | `groupby().transform("size")` |
+
+    而**构建那个图对象本身要 30 多秒**（把 132 万条边逐条加进 NetworkX）——
+    实测它是整个评测脚本里最慢的一步，**而且算的全是用不上的信息**。
+
+    **教训：多传一个"看起来有用"的对象，可能只是在为它的构造成本买单。**
+    先问一句"我到底要用它里面的什么"，往往发现边表就够了。
     """
-    # 有向去重后的边集：判断"反向边是否存在"要忽略重边
-    simple_pairs = set(graph.edges())
+    sender = edges["sender"].to_numpy()
+    receiver = edges["receiver"].to_numpy()
 
-    in_degree = dict(graph.in_degree())
-    out_degree = dict(graph.out_degree())
+    # 出/入度：value_counts 是哈希聚合，比 dict(graph.degree()) 快得多
+    out_degree = edges["sender"].value_counts()
+    in_degree = edges["receiver"].value_counts()
 
-    # 同一对账户之间的转账笔数。用 (sender, receiver) 分组计数。
+    # 同一对账户之间的转账笔数
     pair_counts = (
         edges.groupby(["sender", "receiver"], sort=False)["txId"].transform("size").to_numpy()
     )
 
-    features = pd.DataFrame(
+    # 是否互转：问"反向的那个账户对存在吗"
+    #
+    # 用 MultiIndex + isin（哈希查找），而不是 Python 里遍历 132 万次元组成员判断。
+    existing_pairs = pd.MultiIndex.from_arrays([sender, receiver]).drop_duplicates()
+    reversed_pairs = pd.MultiIndex.from_arrays([receiver, sender])
+    is_reciprocal = reversed_pairs.isin(existing_pairs)
+
+    return pd.DataFrame(
         {
             "txId": edges["txId"].to_numpy(),
-            "sender": edges["sender"].to_numpy(),
-            "receiver": edges["receiver"].to_numpy(),
+            "sender": sender,
+            "receiver": receiver,
             "amount": edges["amount"].to_numpy(),
             "receiverInDegree": edges["receiver"].map(in_degree).to_numpy(),
             "senderOutDegree": edges["sender"].map(out_degree).to_numpy(),
             "pairTxCount": pair_counts,
+            "isReciprocal": is_reciprocal,
         }
     )
-
-    # 互转：反向边存在。用集合查询，整体 O(E)。
-    features["isReciprocal"] = [
-        (receiver, sender) in simple_pairs
-        for sender, receiver in zip(edges["sender"], edges["receiver"], strict=True)
-    ]
-    return features
 
 
 def reciprocal_score(features: pd.DataFrame) -> pd.Series:
@@ -139,11 +155,16 @@ def two_detector_scores(features: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
     实测印证：合并打分的 P@100 升到 96%，但 fan_in 召回**从 90.7% 掉到 31.8%**。
 
     **这也正好对应架构里的第二层**：`match_patterns` 工具本来就是按模式匹配的。
+
+    ⚠️ **只对用得上的列算秩。**
+
+    第一版写的是 `rank = features.rank(pct=True)`，然后取其中两列——
+    **那会对 6 列各排一次序，其中 4 次的结果直接扔掉**。
+    实测：130 万行的 `rank(pct=True)` 是秒级的，白算 4 列就是白花几秒。
     """
-    rank = features.rank(pct=True)
     # 转成百分位，让两个检测器的分数**可比较**——否则融合时会被量纲决定
-    cycle = (1.0 - rank["pairTxCount"]).rank(pct=True)
-    fan_in = (1.0 - rank["amount"]).rank(pct=True)
+    cycle = (1.0 - features["pairTxCount"].rank(pct=True)).rank(pct=True)
+    fan_in = (1.0 - features["amount"].rank(pct=True)).rank(pct=True)
     return cycle, fan_in
 
 

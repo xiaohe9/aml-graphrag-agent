@@ -120,6 +120,22 @@ def to_multidigraph(edges: pd.DataFrame) -> nx.MultiDiGraph[str]:
 
     节点是字符串（`amlsim:123`），所以显式写成 `MultiDiGraph[str]`——
     mypy `--strict` 要求泛型参数，而**显式写出来比让它推断更可靠**。
+
+    ## ⚠️ 这个函数很慢，**大多数时候你不需要它**
+
+    实测：往 NetworkX 里逐条加 **132 万条边要 30 多秒**——
+    而它曾经是评测脚本里最慢的一步。
+
+    **但绝大部分计算根本不需要这张多重图：**
+
+    | 要算什么 | 用什么 | 需要多重图吗 |
+    |---|---|---|
+    | 出度 / 入度 | pandas `value_counts` | ❌ |
+    | 是否互转 | pandas 的 `MultiIndex.isin` | ❌ |
+    | 环检测 | **去重后**的 `DiGraph`（只有 6.9 万条边） | ❌ |
+
+    **`to_simple_digraph()` 才是该用的那个**——它只处理不同的账户对，
+    比这里快一个数量级。这个函数留着，是给确实需要保留平行边的分析用的。
     """
     graph: nx.MultiDiGraph[str] = nx.MultiDiGraph()
     graph.add_edges_from(
@@ -133,9 +149,40 @@ def to_multidigraph(edges: pd.DataFrame) -> nx.MultiDiGraph[str]:
     return graph
 
 
+def to_simple_digraph(edges: pd.DataFrame) -> nx.DiGraph[str]:
+    """边表 → **去重**后的 DiGraph（只保留不同的账户对）。
+
+    实测：132 万条边去重后只剩 **68,947 个账户对**（平行边占 94.8%）。
+
+    **平行边不改变环的结构**——`u→v→u` 存在与否，和中间有几条平行边无关。
+    所以做结构分析（环检测、社区发现）时**应该在去重图上做**，
+    而不是在多重图上，后者会白慢 19 倍。
+
+    这个区别在 M3 里差点被漏掉：当时写的是
+    `isinstance(graph, nx.DiGraph)` 来判断要不要去重，
+    但 **`MultiDiGraph` 是 `DiGraph` 的子类**，所以判断恒为真、去重从未发生。
+    """
+    pairs = edges[["sender", "receiver"]].drop_duplicates()
+    graph: nx.DiGraph[str] = nx.DiGraph()
+    graph.add_edges_from(zip(pairs["sender"], pairs["receiver"], strict=True))
+    return graph
+
+
 def load_graph(
     *, use_cache: bool = True, refresh: bool = False
 ) -> tuple[nx.MultiDiGraph[str], pd.DataFrame]:
-    """一次拿到图和边表。边表用于评测（它带标签），图用于跑算法。"""
+    """一次拿到**多重图**和边表。
+
+    ⚠️ 只想做结构分析的话，用 `load_simple_graph()`——它快得多。
+    见 `to_multidigraph` 的文档。
+    """
     edges = load_edges(use_cache=use_cache, refresh=refresh)
     return to_multidigraph(edges), edges
+
+
+def load_simple_graph(
+    *, use_cache: bool = True, refresh: bool = False
+) -> tuple[nx.DiGraph[str], pd.DataFrame]:
+    """一次拿到**去重图**和边表。结构分析该用这个。"""
+    edges = load_edges(use_cache=use_cache, refresh=refresh)
+    return to_simple_digraph(edges), edges
