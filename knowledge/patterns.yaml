@@ -1,0 +1,317 @@
+# 反洗钱可疑模式知识库
+#
+# ⚠️ **每一条都标了来源。** 这个文件是"领域知识"，不是"我的想象"——
+#    编造类型学会让整个检索层失去意义。
+#
+# ⚠️⚠️ **所有散文类字段一律用块标量（`>-`）。**
+#
+#    这不只是风格问题。第一版把 Markdown 加粗直接写在值开头：
+#
+#        definition: **同一个顶点**上同时具备 fan-in 与 fan-out
+#                    ^ YAML 认为这是【别名引用】，直接语法错误
+#
+#    **YAML 里以 `*` 开头的值是别名、以 `&` 开头是锚点、含 `: ` 是映射。**
+#    而中文技术写作里加粗、冒号、破折号都是家常便饭。
+#
+#    块标量把文本**原样保留**，绕开所有这些陷阱。
+#    这是本项目第三次踩 YAML 的坑（前两次在 CI 配置里），
+#    所以现在有 `tests/test_yaml_files.py` 扫描**全仓库**所有 YAML——
+#    **没扫到的文件就是漏洞。**
+#
+# ## 为什么用 YAML 而不是 Python 字面量
+#
+# 这是**数据**，不是代码。放在数据文件里，非程序员也能改，
+# 而且**改动会出现在 diff 里**。
+#
+# ## 规模说明（这决定了检索层的选型）
+#
+# 当前 **18 条**（8 条图结构 + 10 条类型学）。
+# 这个数字是刻意的：它来自「论文定义的 8 种图模式」+
+# 「公开监管类型学里可结构化的部分」，**不是"越多越好"堆出来的**。
+#
+# ⚠️ **改动这个文件后，请同步更新 `docs/13` 和 `retrieve` 模块里引用的条数。**
+#    （第一版我在注释里写了「22 条」，实际是 18——**数字要说数过的，不是印象里的**。
+#      `scripts/build_pattern_index.py` 会打印实际条数，跑一次就能发现不一致。）
+#
+# 18 条意味着：**用向量数据库是过度设计**。numpy 算余弦相似度是微秒级的。
+# 但接口按"将来会长大"设计——涨到几万条时换掉一个实现即可。详见 `docs/13`。
+
+version: 1
+
+# --------------------------------------------------------------------------- #
+#  A 组：图结构模式
+#
+#  来源：Altman et al. 2023, "Realistic Synthetic Financial Transactions for
+#  Anti-Money Laundering Models" (arXiv:2306.16424), Figure 2。
+#
+#  **这 8 种正是我们的数据集生成器所注入的模式**，
+#  所以它们既是知识库条目，也是评测真值的语义标签。
+# --------------------------------------------------------------------------- #
+structural:
+  - id: fan_in
+    label: fan_in
+    name: 集中转入（扇入）
+    aliases: [fan-in, fan in, 扇入, 多对一, 集中转入]
+    definition: >-
+      一个账户通过入边连接到至少 k≥2 个不同账户，资金从多个来源汇聚到同一点。
+    structure: >-
+      多个账户 → 一个账户
+    why_suspicious: >-
+      汇聚点往往是"归集账户"。正常经营中一个账户收到多笔款很常见；
+      但当大量分散来源在相近时间内汇入、且这些来源彼此无业务关联时，
+      它更像是把分散资金集中起来再转移的前置步骤。
+    detection_hint: >-
+      按接收方分组统计不同来源数；注意区分"多笔"与"多个来源"。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2b
+    dataset_label: fan_in
+
+  - id: fan_out
+    label: fan_out
+    name: 分散转出（扇出）
+    aliases: [fan-out, fan out, 扇出, 一对多, 分散转出]
+    definition: >-
+      一个账户的出边连接到至少 k≥2 个不同账户，资金从单一来源发散。
+    structure: >-
+      一个账户 → 多个账户
+    why_suspicious: >-
+      分散转出是"打散痕迹"最直接的形式——把一笔钱拆给很多账户，
+      让任何单笔看上去都不显眼。
+    detection_hint: >-
+      按转出方分组统计不同去向数。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2a
+    dataset_label: fan_out
+
+  - id: gather_scatter
+    label: gather_scatter
+    name: 先聚后散
+    aliases: [gather-scatter, gather scatter, 聚散, 先聚后散]
+    definition: >-
+      同一个顶点上同时具备 fan-in 与 fan-out——先汇聚再发散。
+    structure: >-
+      多个账户 → 一个中间点 → 多个账户（聚与散在同一个点上）
+    why_suspicious: >-
+      典型的"中转账户"形态：钱进来、很快又出去，账户本身不像终点。
+      聚和散发生在同一个点上，说明这个点是为流转而存在的，不是为经营而存在的。
+    detection_hint: >-
+      同一节点同时满足 fan-in 与 fan-out 的阈值。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2c
+    dataset_label: null
+
+  - id: scatter_gather
+    label: scatter_gather
+    name: 先散后聚
+    aliases: [scatter-gather, scatter gather, 散射汇聚]
+    definition: >-
+      顶点 v 的 fan-out 与顶点 u 的 fan-in 连接到同一组顶点——
+      资金先从一个点散到一组账户，再从这组账户汇聚到另一个点。
+    structure: >-
+      一个点 → 一组中间账户 → 另一个点（两端不同点，中间共用同一组账户）
+    why_suspicious: >-
+      中间那组账户是关键：它们先收后付，充当"二传手"。
+      两端不同点意味着发起方与最终受益方被刻意的中间层隔开。
+    detection_hint: >-
+      找出"同一组账户"同时作为某点出边终点和另一点入边起点的情况。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2d
+    dataset_label: null
+
+  - id: bipartite
+    label: bipartite
+    name: 二分图转账
+    aliases: [bipartite, 二分图, 两组对转]
+    definition: >-
+      资金从一组输入账户转移到另一组输出账户。
+    structure: >-
+      集合 A（多个账户）→ 集合 B（多个账户）
+    why_suspicious: >-
+      两组账户之间形成密集的转账关系，而两组内部几乎没有往来。
+      这种"只在两组之间流动"的结构，常见于把资金从一批账户搬到另一批账户。
+      论文特别指出：所有这些模式里，洗钱主体控制着全部账户。
+    detection_hint: >-
+      社区发现后检查是否存在两个子图之间的密集双向流。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2g
+    dataset_label: null
+
+  - id: stack
+    label: stack
+    name: 多层堆叠
+    aliases: [stack, stacking, 堆叠, 多层中转, 分层]
+    definition: >-
+      bipartite 模式再叠一层 bipartite——资金经过两组以上的账户对。
+    structure: >-
+      集合 A → 集合 B → 集合 C …
+    why_suspicious: >-
+      每多一层，追溯难度就上一个台阶。层级本身就是目的：
+      它把资金来源与去向之间的距离拉长，让单层看起来都正常。
+    detection_hint: >-
+      在社区结构上寻找"接力式"的多层分组转移。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2h
+    dataset_label: null
+
+  - id: cycle
+    label: cycle
+    name: 回流环路
+    aliases: [cycle, 环路, 环形转账, 资金回流, U-turn, round trip]
+    definition: >-
+      资金从某个账户出发，经过一系列转账后回到同一账户。
+    structure: >-
+      A → B → … → A（有向环）
+    why_suspicious: >-
+      论文原话：环的存在是洗钱的强指示（a strong indicator of money laundering）。
+      正常的商业往来很少让资金原路返回——买卖双方各自赚取差价，
+      而不是把钱转一圈还给自己。
+    detection_hint: >-
+      环长比"有没有环"更重要。本项目实测：环长 2（互转）在正常交易里同样普遍，
+      区分度约 1.0 倍；环长 3 提升约 40 倍；环长 4 约 5 倍。
+      所以检测时要区分环长，不能只看"在不在环上"。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2 + Section 1
+    dataset_label: cycle
+
+  - id: random
+    label: random
+    name: 随机游走
+    aliases: [random, random walk, 随机转账]
+    definition: >-
+      资金在被控制的一组账户间随机游走，不呈现明显的规则结构。
+    structure: >-
+      无明显几何形状的路径链
+    why_suspicious: >-
+      它是"反检测"的形态：正因为没有规则结构，
+      基于固定模式的规则与算法都更难命中。
+      这也提醒我们——"没匹配上任何已知模式"不等于"正常"。
+    detection_hint: >-
+      没有可靠的结构判据；需要靠行为特征（金额、频率、时间）辅助。
+    source: >-
+      arXiv:2306.16424 (Altman et al. 2023), Figure 2f
+    dataset_label: null
+
+# --------------------------------------------------------------------------- #
+#  B 组：资金流转类型学（监管视角）
+#
+#  来源：FATF 的洗钱三阶段框架（placement / layering / integration）
+#  以及各地监管机构公开的类型学材料。
+#
+#  ⚠️ 这一组不是图结构，而是"资金在做什么"——
+#     所以它们主要服务于【解释】，而不是【检测】。
+#     这也正是融合层需要两种知识的原因。
+# --------------------------------------------------------------------------- #
+typologies:
+  - id: placement
+    name: 放置（入账）
+    aliases: [placement, 放置阶段, 入账]
+    definition: >-
+      把犯罪所得投入金融体系的第一步——现金存入、购买高价值物品等。
+    why_suspicious: >-
+      单笔看往往合规；异常在于与账户历史行为不符。
+    source: >-
+      FATF 洗钱三阶段框架
+
+  - id: layering
+    name: 分层（离析）
+    aliases: [layering, 分层阶段, 离析, 多层级转移]
+    definition: >-
+      通过复杂的多层交易切断资金与其来源的联系。
+    why_suspicious: >-
+      这是最需要图视角的阶段：单笔交易全都正常，
+      可追溯性是在路径被拉长的过程中消失的。
+    source: >-
+      FATF 洗钱三阶段框架
+
+  - id: integration
+    name: 整合
+    aliases: [integration, 整合阶段, 合法化]
+    definition: >-
+      把已经"洗白"的资金重新投入合法经济体系。
+    why_suspicious: >-
+      资金此时看上去完全合法；线索在于它与上游的关联。
+    source: >-
+      FATF 洗钱三阶段框架
+
+  - id: structuring
+    name: 结构化拆分（化整为零）
+    aliases: [structuring, smurfing, 拆分, 化整为零, 蚂蚁搬家]
+    definition: >-
+      刻意把大额资金拆成低于上报阈值的多笔小额交易。
+    why_suspicious: >-
+      动机极其明确：就是为了避开申报线。
+      所以它的特征不是"金额大"，恰恰是"金额小且刻意接近某个数值"。
+      本项目实测印证了这一点：涉诈交易金额中位数只有正常交易的十五分之一。
+    source: >-
+      FATF 类型学；结构化交易（structuring / smurfing）是各国现金申报制度下
+      最广为记载的规避手法之一
+    dataset_label: null
+
+  - id: shell_company
+    name: 空壳公司中转
+    aliases: [shell company, 空壳公司, 壳公司, 离岸公司]
+    definition: >-
+      通过无实际经营的公司账户转移资金。
+    why_suspicious: >-
+      公司本身没有业务，却有大额或高频资金进出。
+    source: >-
+      FATF 类型学：空壳公司与离岸架构被用于隐藏受益所有人
+    dataset_label: null
+
+  - id: trade_based
+    name: 贸易洗钱
+    aliases: [trade-based money laundering, TBML, 贸易洗钱, 虚假贸易]
+    definition: >-
+      用虚高或虚低的发票价格，借贸易结算转移价值。
+    why_suspicious: >-
+      单看是正常贸易付款；异常在定价与货物不符。
+    source: >-
+      FATF 贸易洗钱（TBML）类型学
+    dataset_label: null
+
+  - id: underground_banking
+    name: 地下钱庄
+    aliases: [underground banking, 地下钱庄, 对敲, 跨境汇兑]
+    definition: >-
+      不通过正规银行体系的跨境资金转移，常以"两地对敲"实现。
+    why_suspicious: >-
+      在图上表现为两个方向相反、金额相近的资金流，
+      境内境外各自闭环，中间没有真实的跨境汇款。
+    source: >-
+      FATF 类型学：替代性汇款体系（IVTS / 非正规价值转移体系）
+    dataset_label: null
+
+  - id: mule_account
+    name: 傀儡账户
+    aliases: [money mule, 傀儡账户, 车手账户, 跑分]
+    definition: >-
+      被他人控制、用于过渡资金的账户（持有人往往也是受害者或被利诱者）。
+    why_suspicious: >-
+      账户行为高度异常：快进快出、不留余额、开户后短期内高频使用，
+      但与持有人的身份、收入明显不符。
+    source: >-
+      FATF / Europol 钱骡（money mule）类型学
+    dataset_label: null
+
+  - id: rapid_in_out
+    name: 快进快出
+    aliases: [rapid in and out, 快进快出, 过渡账户]
+    definition: >-
+      资金到账后极短时间内被转出，账户几乎不停留余额。
+    why_suspicious: >-
+      账户在这段时间里只起到管道作用，不符合正常的资金留存逻辑。
+    source: >-
+      行业通用账户行为指标（多国监管指引中反复出现，无单一权威出处）
+    dataset_label: null
+
+  - id: round_amount
+    name: 整数金额交易
+    aliases: [round amount, 整数金额, 整额转账]
+    definition: >-
+      频繁出现恰好整数金额的转账。
+    why_suspicious: >-
+      真实交易因税费、折扣、汇率很少恰好整数；
+      刻意凑整更像是人为安排的资金搬运。
+    source: >-
+      行业通用金额特征指标（实务经验型判据，无单一权威出处）
+    dataset_label: null

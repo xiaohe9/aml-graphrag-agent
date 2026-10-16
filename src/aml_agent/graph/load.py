@@ -22,18 +22,18 @@ Neo4j 负责存储与查询，算法在 NetworkX 里跑。
 
 from __future__ import annotations
 
-import os
 import time
-from pathlib import Path
 
 import networkx as nx
 import pandas as pd
 
+from aml_agent import paths
 from aml_agent.graph import connect as _connect
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_CACHE_DIR = PROJECT_ROOT / "data" / "cache"
-CACHE_FILE = "edges.parquet"
+#: 缓存目录与文件名的约定统一放在 `aml_agent.paths`——
+#: 在这里和检索层各写一份会**漂移**，而漂移的后果是"某处读的是旧缓存"，很难查。
+CACHE_FILE = paths.EDGES_CACHE
+cache_dir = paths.cache_dir
 
 #: 从图里拉出来的**边表的列名**。
 #:
@@ -69,13 +69,14 @@ RETURN s.key AS sender, r.key AS receiver, t.txId AS txId,
 """
 
 
-def cache_dir() -> Path:
-    override = os.environ.get("AML_CACHE_DIR")
-    return Path(override) if override else DEFAULT_CACHE_DIR
-
-
 def fetch_edges() -> pd.DataFrame:
-    """从 Neo4j 拉全部边（含标签）。约 60 秒。"""
+    """从 Neo4j 拉全部边（**只含特征，不含标签**）。约 44 秒。
+
+    ⚠️ 曾经这里带出 `t.isFraud`。标签已经不在图上了
+    （见 `docs/04` 4.1.1：图是特征存储，不是答案存储），
+    评测需要的标签从 CSV 读。**这是被自动审计抓出来的**——
+    当时审计只扫了 `cypher` 和 `queries` 两个模块，**没扫到的模块就是漏洞**。
+    """
     driver = _connect()
     try:
         with driver.session() as session:

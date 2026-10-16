@@ -11,6 +11,9 @@ dependencies = [
     # 图算法层。**分工是刻意的**：Neo4j 负责存储与查询（索引、Cypher、取 k 跳子图），
     # 算法在 NetworkX 里跑。Neo4j 自己也要靠 GDS 插件才做社区发现——这是常见架构。
     "networkx==3.7",
+    # 知识库是 YAML（数据，不是代码——见 knowledge/patterns.yaml 的说明）。
+    # 从 dev 提到主依赖，因为**运行时也要读它**，不只是测试用。
+    "pyyaml==6.0.3",
 ]
 
 [dependency-groups]
@@ -21,10 +24,9 @@ dev = [
     # pandas 的类型标注在 pandas-stubs 里，mypy --strict 需要它
     "pandas-stubs>=2.3",
     "types-networkx>=3.6",
-    # 校验 GitHub Actions workflow 能被真正解析。
-    # **正则不是解析器**——上个项目就是靠正则"检查"过一个非法 YAML，
-    # 结果 GitHub 整份拒收、所有 job 静默不运行。
-    "pyyaml==6.0.3",
+    # pyyaml 的类型标注。知识库是 YAML，mypy --strict 需要它。
+    # （pyyaml 本身在主依赖里——运行时也要读知识库，不只是测试用。）
+    "types-pyyaml>=6.0",
 ]
 
 [tool.uv]
